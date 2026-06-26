@@ -52,8 +52,8 @@ inputs:
 outputs:
   exit-code:
     description: >
-      Raw pgloop exit code: 0 = clean, 1 = warnings only,
-      2 = critical issues found (or warnings with fail-on=WARN).
+      Raw pgloop exit code: 0 = clean, 1 = warnings only, 2 = critical issues found.
+      This reflects the lint result regardless of the fail-on threshold.
     value: ${{ steps.lint.outputs.exit-code }}
 
   critical:
@@ -179,9 +179,26 @@ runs:
           echo "warn=${WARN}"         >> "$GITHUB_OUTPUT"
         fi
 
-    # ── 7. Propagate exit code ─────────────────────────────────────────────────
+    # ── 7. Propagate exit code ────────────────────────────────────────────────
+    # Fail the action only when the result meets the fail-on threshold:
+    #   fail-on=CRITICAL (default): exit 0 for warnings (pgloop=1), non-zero for critical (pgloop=2)
+    #   fail-on=WARN:               non-zero for any issue (pgloop=1 or 2)
+    # The raw pgloop exit code is always available via outputs.exit-code.
     - name: Propagate exit code
       shell: bash
       env:
         EXIT_CODE: ${{ steps.lint.outputs.exit-code }}
-      run: exit "${EXIT_CODE}"
+        FAIL_ON:   ${{ inputs.fail-on }}
+      run: |
+        if [ "${EXIT_CODE}" -eq 0 ]; then
+          exit 0
+        fi
+        THRESHOLD=$(echo "$FAIL_ON" | tr '[:lower:]' '[:upper:]')
+        if [ "$THRESHOLD" = "WARN" ]; then
+          exit "${EXIT_CODE}"
+        fi
+        # fail-on=CRITICAL: only exit non-zero when exit code is 2
+        if [ "${EXIT_CODE}" -ge 2 ]; then
+          exit "${EXIT_CODE}"
+        fi
+        exit 0
